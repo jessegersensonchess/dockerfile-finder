@@ -1,0 +1,2 @@
+https://github.com/jessegersensonchess/stockfish-nnue-docker.git 85fc78b88dee0cf1c01ef819031ad888683e39e2
+https://github.com/jessegersensonchess/currency-converter.git d17a64e5eaa779d60fc0dcc2ab7d9344c961a0ae
