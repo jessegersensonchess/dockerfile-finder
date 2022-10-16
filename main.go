@@ -27,6 +27,7 @@ var (
 	// input URL
 	url     string
 	dataRow Data
+	data []Data
 )
 
 type apiResponse struct {
@@ -80,7 +81,7 @@ func getData(url string) (apiResponse, error) {
 	c := apiResponse{}
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	req.Header.Set("Content-Type", "application/json")
-	if len(Token) > 0 {
+	if hasToken(Token) {
 		//log.Println("setting Authorization header")
 		req.Header.Set("Authorization", Token)
 	}
@@ -137,27 +138,31 @@ func parseLine(line []string) (url, hash, username, repo string) {
 	return url, hash, username, repo
 }
 
-func findImages(line string, regexp *regexp.Regexp) (imageName string) {
-	lineCleaned := regexp.ReplaceAllString(line, "")
-	isFrom := false
-	if len(strings.Fields(lineCleaned)) > 0 {
-		if strings.ToUpper(strings.Fields(lineCleaned)[0]) == "FROM" {
-			isFrom = true
-		}
+func cleanString(line string, regex *regexp.Regexp) string {
+	return regex.ReplaceAllString(line, "")
+}
+
+func findImages(line string) (imageName string) {
+	subStrings := strings.Fields(line)
+	if len(subStrings) == 0 {
+		return
 	}
-	if isFrom == true {
-		subString := strings.Fields(lineCleaned)
+	if strings.ToUpper(subStrings[0]) == "FROM" {
 		// handles FROM's optional argument "--platform" (https://docs.docker.com/engine/reference/builder/#from)
 		// expected formats:
 		// FROM --platform=[platform] ubuntu:latest
 		// FROM ubuntu:latest
-		if strings.Count(lineCleaned, "--platform=") > 0 {
-			imageName = subString[2]
+		if strings.Count(line, "--platform=") > 0 {
+			imageName = subStrings[2]
 		} else {
-			imageName = subString[1]
+			imageName = subStrings[1]
 		}
 	}
 	return imageName
+}
+
+func hasImageName(imageName string) bool {
+	return len(imageName) > 0
 }
 
 func assembleDataStruct(line []string, ch3 chan<- Data) {
@@ -167,7 +172,7 @@ func assembleDataStruct(line []string, ch3 chan<- Data) {
 
 	// regex removes Dockerfile comments to simplify string matching
 	// i.e. removes things like #FROM image:latest
-	regexp, _ := regexp.Compile(`#.*`)
+	regex, _ := regexp.Compile(`#.*`)
 
 	go getPaths(url, ch2)
 	paths := <-ch2
@@ -186,8 +191,8 @@ func assembleDataStruct(line []string, ch3 chan<- Data) {
 		images := []string{}
 		// loop over each line in Dockerfile
 		for _, line := range fileLine {
-			imageName := findImages(line, regexp)
-			if len(imageName) > 0 {
+			imageName := findImages(cleanString(line, regex))
+			if hasImageName(imageName) {
 				images = append(images, imageName)
 			}
 		}
@@ -197,16 +202,22 @@ func assembleDataStruct(line []string, ch3 chan<- Data) {
 	ch3 <- Data{Sha: line[1], URL: line[0], Tree: trees}
 }
 
-func main() {
-	data := []Data{}
-	ch3 := make(chan Data)
+func hasToken(Token string) bool {
+	return len(Token) > 0
+}
 
+func isWellFormattedData(line []string) bool {
+	return len(line) == 2
+}
+
+func main() {
+	ch3 := make(chan Data)
 	// command line arguments
 	defaultUrl, _ := os.LookupEnv("REPOSITORY_LIST_URL")
 	flag.StringVar(&url, "i", defaultUrl, "URL to txt file. Expected format of text file is: [github.com repository] [commit hash]")
 	flag.StringVar(&Token, "t", os.Getenv("GH_TOKEN"), "Github Api Token")
 	flag.Parse()
-	if len(Token) > 0 {
+	if hasToken(Token) {
 		Token = "Bearer " + Token
 	}
 
@@ -217,7 +228,7 @@ func main() {
 	// loop over INPUT file
 	for _, v := range lines {
 		line := strings.Split(v, " ")
-		if len(line) == 2 {
+		if isWellFormattedData(line) {
 			go assembleDataStruct(line, ch3)
 		} else {
 			dataRow = Data{}
@@ -227,7 +238,7 @@ func main() {
 	// retrieve results from channel
 	for _, v := range lines {
 		line := strings.Split(v, " ")
-		if len(line) == 2 {
+		if isWellFormattedData(line) {
 			dataRow = <-ch3
 			data = append(data, dataRow)
 		}

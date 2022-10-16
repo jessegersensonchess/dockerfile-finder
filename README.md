@@ -34,6 +34,7 @@ Reference
 
 TODO
 -----------
- - add unit tests
+ - increase test coverage
+ - clean code
  - incorporate API response headers "x-ratelimit-limit", "x-ratelimit-remaining", and "x-ratelimit-reset"
  - make getData generic by removing json.Unmarshal
