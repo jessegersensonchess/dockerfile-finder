@@ -144,22 +144,24 @@ func getPaths(url string, c chan<- []string) {
 	c <- result
 }
 
-func parseLine(line []string) (url, hash, username, repo string) {
-	hash = line[1]
+func buildUrls(line []string) (url, dataUrl string) {
+	hash := line[1]
 	path := strings.Split(line[0], "/")
-	username = path[3]
-	repo = strings.Replace(path[4], ".git", "", 1)
-	// "trees" endpoint is similar to find ./ -- see https://docs.github.com/en/rest/git/trees#get-a-tree
+	username := path[3]
+	repo := strings.Replace(path[4], ".git", "", 1)
 	template := "%s/repos/%s/%s/git/trees/%s?recursive=1"
 	url = fmt.Sprintf(template, githubApi, username, repo, hash)
-	return url, hash, username, repo
+	template = "%s/%s/%s/%s/"
+	dataUrl = fmt.Sprintf(template, githubRawUrl, username, repo, hash)
+
+	return url, dataUrl
 }
 
 func findImages(line string) (imageName string) {
-	subStrings := strings.Fields(line)
-	if len(subStrings) == 0 {
-		return
+	if !hasContent(line) {
+			return
 	}
+	subStrings := strings.Fields(line)
 	if strings.ToUpper(subStrings[0]) == "FROM" {
 		// handles FROM's optional argument "--platform" (https://docs.docker.com/engine/reference/builder/#from)
 		// expected formats:
@@ -175,28 +177,26 @@ func findImages(line string) (imageName string) {
 }
 
 func assembleDataStruct(line []string, ch3 chan<- Data) {
-	ch, ch2 := make(chan []string), make(chan []string)
-	trees := []Tree{}
-	url, hash, username, repo := parseLine(line)
+	ch := make(chan []string)
+	url, baseDataUrl := buildUrls(line)
+	go getPaths(url, ch)
+	paths := <-ch
+	amassedTreeData := amassTreeData(paths, baseDataUrl)
+	ch3 <- Data{Sha: line[1], URL: line[0], Tree: amassedTreeData}
+}
 
-	go getPaths(url, ch2)
-	paths := <-ch2
-
+func amassTreeData(paths []string, url string) (trees []Tree) {
 	// loop over paths
+	ch := make(chan []string)
 	for _, path := range paths {
-		// Use https://raw.githubusercontent.com to retrive content. The alternate,
-		// using the API, requires dynamically decoding data based on the supplied encoding (base64 as of oct 11 2022)
-		// We don't have methods for that, so using the decoded content from raw...
-		template := "%s/%s/%s/%s/%s"
-		dataUrl := fmt.Sprintf(template, githubRawUrl, username, repo, hash, path)
-
-		go UrlToLines(dataUrl, ch)
+		uri := url + path
+		go UrlToLines(uri, ch)
 		linesFromFile := <-ch
 		images := extractImageFromDockerfile(linesFromFile)
-		tree := Tree{Path: path, URL: dataUrl, Image: images}
+		tree := Tree{Path: path, URL: uri, Image: images}
 		trees = append(trees, tree)
 	}
-	ch3 <- Data{Sha: line[1], URL: line[0], Tree: trees}
+	return trees
 }
 
 func extractImageFromDockerfile(linesFromFile []string) (images []string) {
@@ -254,6 +254,7 @@ func main() {
 			data = append(data, dataRow)
 		}
 	}
+
 	// print result
 	fmt.Printf("%s", formatData(data))
 }

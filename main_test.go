@@ -76,20 +76,23 @@ func TestGetPaths(t *testing.T) {
 	}
 }
 
-func TestParseLine(t *testing.T) {
-	line := []string{"https://github.com/app-sre/qontract-reconcile.git", "30af65af14a2dce962df923446afff24dd8f123e"}
-	url, hash, username, repo := parseLine(line)
-	if url != "https://api.github.com/repos/app-sre/qontract-reconcile/git/trees/30af65af14a2dce962df923446afff24dd8f123e?recursive=1" {
-		t.Errorf("expecting url=https://api.github.com/repos/app-sre/qontract-reconcile/git/trees/30af65af14a2dce962df923446afff24dd8f123e?recursive=1 , got %s", url)
+func TestBuildUrlsUrl(t *testing.T) {
+	line := []string{"https://github.com/app-sre/container-images.git", "c260deaf135fc0efaab365ea234a5b86b3ead404"}
+	expected := "https://api.github.com/repos/app-sre/container-images/git/trees/c260deaf135fc0efaab365ea234a5b86b3ead404?recursive=1"
+
+	output, _ := buildUrls(line)
+
+	if output != expected {
+		t.Errorf("expecting=%s , got %s", expected, output)
 	}
-	if hash != "30af65af14a2dce962df923446afff24dd8f123e" {
-		t.Errorf("expecting hash=30af65af14a2dce962df923446afff24dd8f123e , got %s", hash)
-	}
-	if username != "app-sre" {
-		t.Errorf("expecting username=app-sre, got %s", username)
-	}
-	if repo != "qontract-reconcile" {
-		t.Errorf("expecting: repo= qontract-reconcile, got %s", repo)
+}
+
+func TestBuildUrlsDataUrl(t *testing.T) {
+	line := []string{"https://github.com/app-sre/container-images.git", "c260deaf135fc0efaab365ea234a5b86b3ead404"}
+	expected := "https://raw.githubusercontent.com/app-sre/container-images/c260deaf135fc0efaab365ea234a5b86b3ead404/"
+	_, output := buildUrls(line)
+	if output != expected {
+		t.Errorf("expecting=%s , got %s", expected, output)
 	}
 }
 

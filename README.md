@@ -28,6 +28,10 @@ Usage
 
 `GITHUB_TOKEN` (optional) expects a valid github token, used for making api calls
 
+Note
+-----------
+We do not have reliable methods for dynamically decoding content. Parts of the github API supply encoding information, for example 'base64' as of oct 11, 2022. If they change to base65, our tool would fail. Therefore, we are using decoded data available over the public url https://raw.githubusercontent.com for some "API" calls. 
+
 Reference
 -----------
  - https://docs.github.com/en/rest/git/trees#get-a-tree
