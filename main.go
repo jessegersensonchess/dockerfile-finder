@@ -11,7 +11,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"regexp"
 	"strings"
 )
 
@@ -27,7 +26,7 @@ var (
 	// input URL
 	url     string
 	dataRow Data
-	data []Data
+	data    []Data
 )
 
 type apiResponse struct {
@@ -57,11 +56,29 @@ type Tree struct {
 	Image []string `json:"image"`
 }
 
+func removeDockerfileComments(line string) string {
+	// removes Dockerfile comments, things like: #FROM image:latest
+	substrings := strings.Split(line, "#")
+	return substrings[0]
+}
+
+func hasContent(str string) bool {
+	return len(str) > 0
+}
+
+func hasToken(Token string) bool {
+	return len(Token) > 0
+}
+
+func isWellFormattedData(line []string) bool {
+	return len(line) == 2
+}
+
 func UrlToLines(url string, c chan<- []string) {
 	// gets url and sticks each of it lines into a slice
 	resp, err := http.Get(url)
 	if err != nil {
-		log.Fatal("FATAL: problem getting url=", url, ", error=", err)
+		log.Println("ERROR: problem getting url=", url, ", error=", err)
 	}
 	defer resp.Body.Close()
 	c <- LinesFromReader(resp.Body)
@@ -138,10 +155,6 @@ func parseLine(line []string) (url, hash, username, repo string) {
 	return url, hash, username, repo
 }
 
-func cleanString(line string, regex *regexp.Regexp) string {
-	return regex.ReplaceAllString(line, "")
-}
-
 func findImages(line string) (imageName string) {
 	subStrings := strings.Fields(line)
 	if len(subStrings) == 0 {
@@ -161,62 +174,60 @@ func findImages(line string) (imageName string) {
 	return imageName
 }
 
-func hasImageName(imageName string) bool {
-	return len(imageName) > 0
-}
-
 func assembleDataStruct(line []string, ch3 chan<- Data) {
 	ch, ch2 := make(chan []string), make(chan []string)
 	trees := []Tree{}
 	url, hash, username, repo := parseLine(line)
 
-	// regex removes Dockerfile comments to simplify string matching
-	// i.e. removes things like #FROM image:latest
-	regex, _ := regexp.Compile(`#.*`)
-
 	go getPaths(url, ch2)
 	paths := <-ch2
 
 	// loop over paths
-	for _, i := range paths {
+	for _, path := range paths {
 		// Use https://raw.githubusercontent.com to retrive content. The alternate,
 		// using the API, requires dynamically decoding data based on the supplied encoding (base64 as of oct 11 2022)
 		// We don't have methods for that, so using the decoded content from raw...
 		template := "%s/%s/%s/%s/%s"
-		dataUrl := fmt.Sprintf(template, githubRawUrl, username, repo, hash, i)
+		dataUrl := fmt.Sprintf(template, githubRawUrl, username, repo, hash, path)
 
 		go UrlToLines(dataUrl, ch)
-		fileLine := <-ch
-
-		images := []string{}
-		// loop over each line in Dockerfile
-		for _, line := range fileLine {
-			imageName := findImages(cleanString(line, regex))
-			if hasImageName(imageName) {
-				images = append(images, imageName)
-			}
-		}
-		tree := Tree{Path: i, URL: dataUrl, Image: images}
+		linesFromFile := <-ch
+		images := extractImageFromDockerfile(linesFromFile)
+		tree := Tree{Path: path, URL: dataUrl, Image: images}
 		trees = append(trees, tree)
 	}
 	ch3 <- Data{Sha: line[1], URL: line[0], Tree: trees}
 }
 
-func hasToken(Token string) bool {
-	return len(Token) > 0
+func extractImageFromDockerfile(linesFromFile []string) (images []string) {
+	// loop over each line in the Dockerfile
+	for _, line := range linesFromFile {
+		line = removeDockerfileComments(line)
+		imageName := findImages(line)
+		if hasContent(imageName) {
+			images = append(images, imageName)
+		}
+	}
+	return
 }
 
-func isWellFormattedData(line []string) bool {
-	return len(line) == 2
+func formatData(data []Data) (result string) {
+	byteArray, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		fmt.Println(err)
+	}
+	return string(byteArray)
 }
 
 func main() {
 	ch3 := make(chan Data)
-	// command line arguments
 	defaultUrl, _ := os.LookupEnv("REPOSITORY_LIST_URL")
+
+	// command line arguments
 	flag.StringVar(&url, "i", defaultUrl, "URL to txt file. Expected format of text file is: [github.com repository] [commit hash]")
 	flag.StringVar(&Token, "t", os.Getenv("GH_TOKEN"), "Github Api Token")
 	flag.Parse()
+
 	if hasToken(Token) {
 		Token = "Bearer " + Token
 	}
@@ -243,10 +254,6 @@ func main() {
 			data = append(data, dataRow)
 		}
 	}
-
-	byteArray, err := json.MarshalIndent(data, "", "  ")
-	if err != nil {
-		fmt.Println(err)
-	}
-	fmt.Printf("%s", string(byteArray))
+	// print result
+	fmt.Printf("%s", formatData(data))
 }
